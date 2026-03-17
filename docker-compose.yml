@@ -1,0 +1,60 @@
+# ============================================================================
+# docker-compose.yml — API REST Copilot
+#
+# Uso:
+#   docker compose up --build
+#
+# Para passar o token com segurança, escolha UMA das opções:
+#
+#   Opção 1 — Variável de ambiente no shell:
+#     export COPILOT_GITHUB_TOKEN=ghp_xxxxx
+#     docker compose up --build
+#
+#   Opção 2 — Arquivo .env (NÃO commite no git):
+#     echo "COPILOT_GITHUB_TOKEN=ghp_xxxxx" > .env
+#     docker compose up --build
+#
+#   Opção 3 — Docker secrets (produção):
+#     Use a seção 'secrets' do Compose (requer Swarm mode ou Compose v2.20+).
+#
+# IMPORTANTE: Nunca hardcode o token diretamente neste arquivo.
+# ============================================================================
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: copilot-api
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      # Token de autenticação do Copilot (lido do .env ou do shell).
+      # O SDK aceita COPILOT_GITHUB_TOKEN, GH_TOKEN ou GITHUB_TOKEN.
+      # IMPORTANTE: Classic PATs (ghp_) NÃO são suportados!
+      # Use fine-grained PAT (github_pat_...) com permissão "Copilot Requests".
+      - COPILOT_GITHUB_TOKEN=${COPILOT_GITHUB_TOKEN:-}
+    # Limites de recursos para garantir baixo consumo de memória.
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+          cpus: "1.0"
+        reservations:
+          memory: 256M
+          cpus: "0.25"
+    # Reinicia automaticamente em caso de falha.
+    restart: unless-stopped
+    # Health check via endpoint /health.
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '\"ok\"'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+    # Se NÃO usar o bundler para embutir o CLI, monte como volume:
+    # volumes:
+    #   - /usr/local/bin/copilot:/usr/local/bin/copilot:ro
+    #   - ${HOME}/.config/github-copilot:/home/nonroot/.config/github-copilot:ro
