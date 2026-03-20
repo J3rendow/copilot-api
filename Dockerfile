@@ -72,9 +72,9 @@ FROM debian:bookworm-slim
 LABEL maintainer="local-dev"
 LABEL description="API REST + WebSocket para automação com GitHub Copilot SDK"
 
-# Instala apenas certificados SSL (ca-certificates).
+# Instala apenas o mínimo para runtime e healthcheck HTTP.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
+    ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Cria usuário não-root para segurança.
@@ -100,8 +100,8 @@ EXPOSE 8080
 # Roda como usuário não-root.
 USER appuser:appuser
 
-# Health check nativo — verifica se a API responde.
+# Health check HTTP explícito. /dev/tcp não funciona no /bin/sh (dash) do Debian.
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=15s \
-    CMD ["/bin/sh", "-c", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && cat <&3 | grep -q '\"ok\"'"]
+    CMD ["curl", "-fsS", "http://localhost:8080/health"]
 
 ENTRYPOINT ["/api-server"]

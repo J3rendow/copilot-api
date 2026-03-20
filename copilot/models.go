@@ -35,10 +35,10 @@ type ModelsResponse struct {
 // Última atualização: março 2026.
 var modelMultiplier = map[string]float64{
 	// ── Modelos incluídos (0× = gratuito em planos pagos) ──
-	"gpt-4.1":      0,
-	"gpt-4o":       0,
-	"gpt-5-mini":   0,
-	"raptor-mini":  0,
+	"gpt-4.1":     0,
+	"gpt-4o":      0,
+	"gpt-5-mini":  0,
+	"raptor-mini": 0,
 
 	// ── Modelos premium ──
 	"claude-haiku-4.5":     0.33,
@@ -55,15 +55,15 @@ var modelMultiplier = map[string]float64{
 	"gemini-3-pro-preview": 1,
 	"gemini-3.1-pro":       1,
 
-	"gpt-5.1":              1,
-	"gpt-5.1-codex":        1,
-	"gpt-5.1-codex-mini":   0.33,
-	"gpt-5.1-codex-max":    1,
-	"gpt-5.2":              1,
-	"gpt-5.2-codex":        1,
-	"gpt-5.3-codex":        1,
+	"gpt-5.1":            1,
+	"gpt-5.1-codex":      1,
+	"gpt-5.1-codex-mini": 0.33,
+	"gpt-5.1-codex-max":  1,
+	"gpt-5.2":            1,
+	"gpt-5.2-codex":      1,
+	"gpt-5.3-codex":      1,
 
-	"grok-code-fast-1":     0.25,
+	"grok-code-fast-1": 0.25,
 }
 
 // sortedPrefixes contém os prefixos do modelMultiplier ordenados do mais longo

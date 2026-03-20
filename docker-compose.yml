@@ -46,9 +46,9 @@ services:
           cpus: "0.25"
     # Reinicia automaticamente em caso de falha.
     restart: unless-stopped
-    # Health check via endpoint /health.
+    # Health check HTTP via curl.
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '\"ok\"'"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
       interval: 30s
       timeout: 5s
       retries: 3

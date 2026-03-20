@@ -19,6 +19,32 @@ O SDK funciona como cliente JSON-RPC que se comunica com o executável do Copilo
 4. O CLI comunica com a API do GitHub Copilot (cloud)
 5. A resposta retorna pelo mesmo caminho
 
+## Validação da Arquitetura Atual
+
+Arquitetura validada em runtime:
+
+1. O processo principal da aplicação é o binário Go `/api-server`
+2. Na inicialização, `mgr.Start(ctx)` sobe o cliente do SDK e mantém o Copilot CLI em execução contínua
+3. O Copilot CLI roda como um segundo processo dentro do mesmo container, em modo `--headless --stdio`
+4. O servidor HTTP usa `net/http` nativo com `ServeMux`, sem framework adicional
+5. O WebSocket usa `gorilla/websocket` apenas no endpoint de streaming
+6. Cada request de chat cria uma sessão efêmera do SDK, envia a mensagem e destrói a sessão ao final
+7. Uploads são temporários e descartados após a resposta
+
+Medições observadas no container em execução:
+
+- `docker stats`: `244.6MiB / 1GiB`
+- `docker top`: `/api-server` com RSS de ~`10MiB`
+- `docker top`: Copilot CLI com RSS de ~`295MiB`
+- Cache extraído do CLI em disco: ~`133MiB` em `/home/appuser/.cache/copilot-sdk`
+
+Conclusão objetiva:
+
+- O consumo de memória não é do servidor Go
+- O consumo dominante vem do **Copilot CLI embutido**, que é um runtime Node.js autocontido
+- A API Go adiciona pouca memória incremental; o peso está no processo auxiliar obrigatório do SDK
+
+
 ## Endpoints
 
 | Método | Path           | Content-Type                        | Descrição                                                |
@@ -147,6 +173,9 @@ curl http://localhost:8080/models | jq
 
 > **Nota:** Os modelos disponíveis dependem do seu plano GitHub Copilot (Free, Pro, Pro+, Business, Enterprise).  
 > A classificação usa **prefix matching** — modelos versionados como `gpt-4o-2024-08-06` são corretamente mapeados para `gpt-4o` (free_0x).
+
+> **Comportamento importante:** o endpoint `/models` mostra apenas os modelos que o Copilot CLI anuncia em `ListModels()`.  
+> Isso significa que um modelo pode funcionar em `POST /chat` mesmo sem aparecer em `/models`, caso o CLI aceite esse ID diretamente, mas não o exponha na listagem atual da conta/ambiente. Em uma validação recente, o CLI retornou `gpt-4.1` e `gpt-5-mini`, mas não retornou `gpt-4o` na lista, embora `gpt-4o` tenha respondido normalmente no endpoint `/chat`.
 
 **Multiplicadores de custo (planos pagos):**
 
@@ -433,6 +462,135 @@ debian:bookworm-slim (runtime, ~80MB)
 
 > **Por que não Alpine/distroless?** O CLI do Copilot é linkado contra glibc.
 > Alpine usa musl (incompatível) e distroless/static não tem nenhuma lib dinâmica.
+
+### Por que a API usa ~250 MiB ao iniciar?
+
+Essa aplicação não inicia apenas um binário Go. Ela inicia **dois processos**:
+
+1. `api-server` em Go, responsável por HTTP, WebSocket, parse de payloads, timeouts e middleware
+2. `copilot` CLI, responsável por toda a comunicação agentic com o backend do GitHub Copilot
+
+Na prática:
+
+- O processo Go ficou em torno de `10MiB` de RSS
+- O processo `copilot` ficou em torno de `295MiB` de RSS
+- O `docker stats` mostrou o container em ~`244.6MiB`
+
+Os números não batem exatamente porque:
+
+- `docker top` mostra RSS por processo
+- `docker stats` mostra memória pelo cgroup do container
+- páginas compartilhadas, page cache e diferenças de amostragem afetam a comparação
+
+Mas a direção é inequívoca: **quase toda a memória está no Copilot CLI**, não no código Go da API.
+
+Implicação prática:
+
+- trocar Go por Rust **não** elimina o processo do Copilot CLI
+- portanto, **não** se deve esperar uma redução drástica de memória total apenas pela troca de linguagem da API
+
+## Análise de Viabilidade — Versão em Rust
+
+Objetivo analisado: manter a versão atual em Go e, se fizer sentido, adicionar uma implementação paralela em Rust em uma subpasta do mesmo repositório, com Docker/Compose próprios, sem apagar a base existente.
+
+### O que existe hoje no ecossistema Rust
+
+Foi validado o repositório comunitário [copilot-community-sdk/copilot-sdk-rust](https://github.com/copilot-community-sdk/copilot-sdk-rust):
+
+- é **community-maintained**, não oficial
+- está em **technical preview**
+- declara **paridade ampla** com os SDKs oficiais
+- suporta sessões, streaming, tools, hooks, shell ops, MCP, BYOK e protocol v2/v3
+- **não possui CLI bundling** pronto (`CLI bundling: planned`)
+- não há releases publicadas no momento
+- a base é recente e com comunidade pequena
+
+Também foi validado o org [copilot-community-sdk](https://github.com/copilot-community-sdk), que explicita o disclaimer de que esses SDKs são **não oficiais** e podem quebrar com mudanças no Copilot CLI.
+
+### Impacto esperado em performance
+
+Trocar a camada HTTP/WebSocket de Go para Rust pode trazer ganhos marginais em:
+
+- uso de CPU sob alta concorrência
+- latência do servidor para parse/serialização
+- alocação de memória da própria camada de API
+- previsibilidade em cargas muito altas
+
+Mas, neste projeto específico, o gargalo principal não está nessa camada. O fluxo dominante é:
+
+`HTTP/WS -> API -> SDK -> Copilot CLI -> GitHub Copilot`
+
+Ou seja:
+
+- o custo maior está no processo do Copilot CLI
+- a latência principal vem do processamento remoto + CLI intermediário
+- o ganho da troca Go -> Rust tende a ser **secundário** no resultado final
+
+### Impacto esperado em memória
+
+Cenário atual observado:
+
+- Go API: ~`10MiB`
+- Copilot CLI: ~`295MiB` RSS
+
+Mesmo que uma versão Rust reduzisse a API de ~`10MiB` para ~`5MiB` ou menos, o total do container continuaria dominado pelo CLI. Na prática:
+
+- economia absoluta provável: **pequena**
+- economia percentual total: **baixa**
+- benefício real de memória: **insuficiente** para justificar sozinho uma reescrita
+
+### Riscos da alternativa Rust
+
+1. SDK não oficial
+2. menor maturidade operacional que o SDK oficial em Go
+3. risco de divergência futura com novas features do protocolo
+4. maior custo de manutenção em paralelo entre duas bases
+5. ausência atual de bundling do CLI, o que pode complicar a distribuição comparado ao fluxo atual em Go
+
+### Quando vale a pena fazer a versão Rust
+
+Vale a pena se o objetivo for:
+
+- benchmark comparativo formal entre stacks
+- explorar ecossistema Rust para runtime, observabilidade ou integração futura
+- ter uma segunda implementação de referência
+- reduzir overhead da camada HTTP sob alta escala
+
+Não vale a pena se o objetivo principal for apenas:
+
+- reduzir de forma relevante a memória total do container
+- obter grande melhora de latência ponta a ponta
+
+### Recomendação
+
+Recomendação técnica atual:
+
+- **manter Go como implementação principal**
+- **não migrar por causa de memória**
+- se houver interesse em benchmark, criar uma versão paralela em Rust em subpasta separada, sem remover nada da versão Go
+
+Estrutura sugerida para essa evolução futura:
+
+```text
+.
+├── go-api/                  # versão atual (ou manter raiz como está)
+├── rust-api/
+│   ├── Cargo.toml
+│   ├── src/
+│   ├── Dockerfile
+│   ├── docker-compose.yml
+│   └── README.md
+└── benchmarks/
+  └── cenarios.md
+```
+
+Critério de decisão recomendado antes de implementar tudo em Rust:
+
+1. medir throughput com N requests concorrentes
+2. medir p50/p95/p99 em `/chat` e `/chat/stream`
+3. medir memória total do container em idle e sob carga
+4. verificar custo operacional do bundling/distribuição do CLI no stack Rust
+5. só continuar se houver ganho material comprovado
 
 ### Middleware Chain
 

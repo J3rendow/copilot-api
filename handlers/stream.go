@@ -44,7 +44,7 @@ type FileAttachment struct {
 // StreamChunk é cada fragmento de texto enviado de volta ao cliente via WS.
 // Type pode ser: "chunk" (texto), "reasoning" (thinking), "done", "error".
 type StreamChunk struct {
-	Type    string `json:"type"`              // "chunk", "reasoning", "done", "error"
+	Type    string `json:"type"` // "chunk", "reasoning", "done", "error"
 	Content string `json:"content,omitempty"`
 	Error   string `json:"error,omitempty"`
 }
@@ -105,7 +105,7 @@ func StreamHandler(mgr *copilot.Manager) http.HandlerFunc {
 		// Valida e constrói attachment se presente.
 		var (
 			attachment *sdk.Attachment
-			cleanup   func()
+			cleanup    func()
 		)
 		if req.File != nil {
 			if req.File.Name == "" || req.File.MimeType == "" || req.File.Data == "" {
@@ -162,7 +162,7 @@ func StreamHandler(mgr *copilot.Manager) http.HandlerFunc {
 		// e assistant.reasoning_delta com DeltaContent contendo fragmentos.
 		session, err := client.CreateSession(ctx, &sdk.SessionConfig{
 			Model:               req.Model,
-			Streaming:            true,
+			Streaming:           true,
 			ReasoningEffort:     req.ReasoningEffort,
 			OnPermissionRequest: sdk.PermissionHandler.ApproveAll,
 		})
