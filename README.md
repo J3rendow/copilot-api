@@ -1,304 +1,168 @@
-# API REST + WebSocket — GitHub Copilot SDK (Go)
+# Copilot API
 
-API altamente performática para automação local usando o GitHub Copilot SDK (`github.com/github/copilot-sdk/go` v0.1.29).  
-O SDK funciona como cliente JSON-RPC que se comunica com o executável do Copilot CLI em "server mode".
+[![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?style=for-the-badge&logo=go)](https://go.dev/)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
+[![GitHub stars](https://img.shields.io/github/stars/J3rendow/copilot-api?style=for-the-badge)](https://github.com/J3rendow/copilot-api/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/J3rendow/copilot-api?style=for-the-badge)](https://github.com/J3rendow/copilot-api/network/members)
+[![Last commit](https://img.shields.io/github/last-commit/J3rendow/copilot-api?style=for-the-badge)](https://github.com/J3rendow/copilot-api/commits/main)
 
-## Arquitetura
+High-performance REST API + WebSocket server built in Go on top of the official GitHub Copilot SDK.
 
-```
-┌──────────────┐     HTTP/WS      ┌──────────────────┐   JSON-RPC   ┌──────────────┐
-│  Cliente     │ ◄──────────────► │  API Go (8080)   │ ◄──────────► │  Copilot CLI │
-│  (curl/app)  │                  │  net/http + WS   │              │  (server)    │
-└──────────────┘                  └──────────────────┘              └──────────────┘
-```
+API REST + servidor WebSocket em Go, usando o SDK oficial do GitHub Copilot para chat síncrono, streaming e análise de arquivos.
 
-**Fluxo interno:**
-1. O cliente HTTP/WS envia um request para a API Go
-2. A API cria uma sessão efêmera no SDK (`CreateSession`)
-3. O SDK traduz para JSON-RPC e envia ao Copilot CLI
-4. O CLI comunica com a API do GitHub Copilot (cloud)
-5. A resposta retorna pelo mesmo caminho
+## Star History
 
-## Validação da Arquitetura Atual
+[![Star History Chart](https://api.star-history.com/svg?repos=J3rendow/copilot-api&type=Date)](https://www.star-history.com/#J3rendow/copilot-api&Date)
 
-Arquitetura validada em runtime:
+## Languages
 
-1. O processo principal da aplicação é o binário Go `/api-server`
-2. Na inicialização, `mgr.Start(ctx)` sobe o cliente do SDK e mantém o Copilot CLI em execução contínua
-3. O Copilot CLI roda como um segundo processo dentro do mesmo container, em modo `--headless --stdio`
-4. O servidor HTTP usa `net/http` nativo com `ServeMux`, sem framework adicional
-5. O WebSocket usa `gorilla/websocket` apenas no endpoint de streaming
-6. Cada request de chat cria uma sessão efêmera do SDK, envia a mensagem e destrói a sessão ao final
-7. Uploads são temporários e descartados após a resposta
+- [Português](#português)
+- [English](#english)
 
-Medições observadas no container em execução:
+## Português
 
-- `docker stats`: `244.6MiB / 1GiB`
-- `docker top`: `/api-server` com RSS de ~`10MiB`
-- `docker top`: Copilot CLI com RSS de ~`295MiB`
-- Cache extraído do CLI em disco: ~`133MiB` em `/home/appuser/.cache/copilot-sdk`
+### Visão Geral
 
-Conclusão objetiva:
+Esta aplicação expõe uma API HTTP e um endpoint WebSocket sobre o GitHub Copilot SDK (`github.com/github/copilot-sdk/go`).
 
-- O consumo de memória não é do servidor Go
-- O consumo dominante vem do **Copilot CLI embutido**, que é um runtime Node.js autocontido
-- A API Go adiciona pouca memória incremental; o peso está no processo auxiliar obrigatório do SDK
+Fluxo real da aplicação:
 
+1. O cliente envia requisição para a API Go
+2. A API cria uma sessão efêmera no SDK
+3. O SDK fala com o Copilot CLI via JSON-RPC
+4. O Copilot CLI se comunica com o backend do GitHub Copilot
+5. A resposta volta para a API e é entregue por HTTP ou WebSocket
 
-## Endpoints
+Arquitetura resumida:
 
-| Método | Path           | Content-Type                        | Descrição                                                |
-|--------|----------------|-------------------------------------|----------------------------------------------------------|
-| GET    | `/health`      | —                                   | Health check (`{"status":"ok"}`)                         |
-| GET    | `/models`      | —                                   | Lista modelos classificados (free vs premium) com multiplicadores |
-| POST   | `/chat`        | `application/json` ou `multipart/form-data` | Chat síncrono — aceita texto e/ou arquivo (≤5MB) |
-| WS     | `/chat/stream` | JSON via WebSocket                  | Streaming de tokens — aceita anexo base64 (≤5MB)         |
-
-## Estrutura do Projeto
-
-```
-.
-├── main.go                 # Entry point, roteamento, graceful shutdown
-├── go.mod                  # Módulo Go (requer Go 1.25+)
-├── copilot/
-│   ├── client.go           # Manager do ciclo de vida do SDK (token, start/stop)
-│   └── models.go           # Classificação de modelos com multiplicadores oficiais
-├── handlers/
-│   ├── response.go         # Helpers de resposta JSON (JSON, JSONError)
-│   ├── upload.go           # Validação de uploads, temp files, builders de Attachment
-│   ├── models.go           # GET /models (listagem dinâmica via SDK)
-│   ├── chat.go             # POST /chat (JSON + multipart/form-data com arquivo)
-│   └── stream.go           # WS /chat/stream (streaming + anexo base64)
-├── middleware/
-│   └── middleware.go        # Logger (slog), Recoverer (panic → 500), CORS
-├── Dockerfile              # Multi-stage: golang:bookworm → debian:bookworm-slim
-├── docker-compose.yml      # Orquestração com limite de recursos (1024MB, 1 CPU)
-├── .env                    # Token de autenticação (NÃO commitar)
-└── .gitignore
+```text
+Cliente HTTP/WS
+  -> API Go
+  -> SDK oficial do Copilot
+  -> Copilot CLI
+  -> GitHub Copilot
 ```
 
-## Pré-requisitos
+### Endpoints
 
-- **Go 1.25+** (usa `net/http` ServeMux com method patterns + go tool)
-- **Fine-grained PAT** (`github_pat_...`) com permissão **"Copilot Requests"**  
-  ⚠️ Classic PATs (`ghp_...`) **NÃO** são suportados pelo Copilot CLI
-- **Docker + Docker Compose** (opcional, para execução containerizada)
+| Método | Path | Descrição |
+|---|---|---|
+| GET | `/health` | Health check |
+| GET | `/models` | Lista os modelos retornados pelo CLI e classifica por tier |
+| POST | `/chat` | Chat síncrono com JSON ou multipart/form-data |
+| WS | `/chat/stream` | Streaming de resposta via WebSocket |
 
-## Autenticação
+### Como funciona hoje
 
-A API autentica com o GitHub Copilot via token. O SDK verifica as variáveis na ordem:
+- O servidor HTTP usa `net/http` nativo
+- O streaming usa `gorilla/websocket`
+- O lifecycle do SDK fica centralizado no manager
+- Cada request cria sua própria sessão efêmera no Copilot SDK
+- Uploads são temporários e apagados após o uso
+- O container roda com `debian:bookworm-slim`
 
-1. `COPILOT_GITHUB_TOKEN`
-2. `GH_TOKEN`
-3. `GITHUB_TOKEN`
+### Consumo de memória no startup
 
-**Tipos de token suportados:**
+O uso de memória inicial mais alto não vem do servidor Go em si.
 
-| Tipo | Prefixo | Suportado | Notas |
-|------|---------|-----------|-------|
-| Fine-grained PAT | `github_pat_` | ✅ | Requer permissão "Copilot Requests" |
-| OAuth token | `gho_` | ✅ | Via `copilot auth login` ou `gh auth login` |
-| User-to-server | `ghu_` | ✅ | Via GitHub App |
-| Classic PAT | `ghp_` | ❌ | **Rejeitado** pelo CLI — log de erro na inicialização |
+Validação em runtime:
 
-## Início Rápido (Local)
+- `docker stats`: cerca de `216 MiB` a `245 MiB`
+- `/api-server`: cerca de `10 MiB` de RSS
+- Copilot CLI: cerca de `295 MiB` de RSS em `docker top`
+- cache extraído do CLI: cerca de `133 MiB` em disco
+
+Conclusão:
+
+- o processo pesado é o **Copilot CLI embutido**
+- a API Go é relativamente leve
+- a maior parte da memória do container é dominada pelo runtime do CLI
+
+### Importante sobre `/models`
+
+O endpoint `/models` mostra apenas o que o Copilot CLI retorna em `ListModels()`.
+
+Então:
+
+- um modelo pode funcionar no `/chat`
+- e ainda assim não aparecer em `/models`
+
+Isso acontece porque a listagem depende do que o CLI anuncia para a conta/ambiente naquele momento.
+
+### Modelos e classificação
+
+- a API usa classificação por match exato e fallback por prefixo
+- isso permite mapear IDs versionados como `gpt-4o-2024-08-06` para `gpt-4o`
+- modelos desconhecidos recebem multiplicador conservador `1x`
+
+### Upload de arquivos
+
+`POST /chat`:
+
+- aceita `application/json`
+- aceita `multipart/form-data`
+- campo opcional `file`
+
+`WS /chat/stream`:
+
+- aceita JSON com `file.data` em base64
+- o arquivo é decodificado e salvo temporariamente antes de ser enviado ao SDK
+
+Limites:
+
+- tamanho máximo: `5 MB`
+- extensões permitidas: imagens, texto, código, PDF e alguns formatos de configuração/log
+
+### Quick Start
+
+#### Local
 
 ```bash
-# 1. Clone e entre no diretório
-cd api-rest-copilot
-
-# 2. Configure o token (fine-grained PAT com permissão "Copilot Requests")
 export COPILOT_GITHUB_TOKEN=github_pat_xxxxx
-
-# 3. Instale dependências e compile
 go mod download
 go build -o api-server .
-
-# 4. Execute
 ./api-server
-# {"level":"INFO","msg":"main: servidor iniciado","port":"8080"}
 ```
 
-## Início Rápido (Docker)
+#### Docker
 
 ```bash
-# 1. Configure o token
 echo "COPILOT_GITHUB_TOKEN=github_pat_xxxxx" > .env
-
-# 2. Build e execução
 docker compose up --build
-
-# Imagem final: debian:bookworm-slim (~80MB)
-# Runtime: golang:bookworm (builder) → debian:bookworm-slim (produção)
-# O Copilot CLI (~132MB Node.js) é embutido no binário via bundler do SDK.
 ```
 
-## Exemplos de Uso
+### Exemplos
 
----
-
-### GET /health
+#### Health
 
 ```bash
 curl http://localhost:8080/health
 ```
-```json
-{"status":"ok"}
-```
 
----
-
-### GET /models
-
-Lista todos os modelos disponíveis classificados por tier com seus multiplicadores de custo.
+#### Models
 
 ```bash
 curl http://localhost:8080/models | jq
 ```
-```json
-{
-  "free": [
-    {"id": "gpt-4.1", "name": "gpt-4.1", "tier": "free_0x", "multiplier": 0},
-    {"id": "gpt-4o", "name": "gpt-4o", "tier": "free_0x", "multiplier": 0},
-    {"id": "gpt-5-mini", "name": "gpt-5-mini", "tier": "free_0x", "multiplier": 0}
-  ],
-  "premium": [
-    {"id": "claude-sonnet-4", "name": "claude-sonnet-4", "tier": "premium_request", "multiplier": 1},
-    {"id": "gemini-2.5-pro", "name": "gemini-2.5-pro", "tier": "premium_request", "multiplier": 1},
-    {"id": "gpt-5.1", "name": "gpt-5.1", "tier": "premium_request", "multiplier": 1}
-  ],
-  "total": 17
-}
-```
 
-> **Nota:** Os modelos disponíveis dependem do seu plano GitHub Copilot (Free, Pro, Pro+, Business, Enterprise).  
-> A classificação usa **prefix matching** — modelos versionados como `gpt-4o-2024-08-06` são corretamente mapeados para `gpt-4o` (free_0x).
-
-> **Comportamento importante:** o endpoint `/models` mostra apenas os modelos que o Copilot CLI anuncia em `ListModels()`.  
-> Isso significa que um modelo pode funcionar em `POST /chat` mesmo sem aparecer em `/models`, caso o CLI aceite esse ID diretamente, mas não o exponha na listagem atual da conta/ambiente. Em uma validação recente, o CLI retornou `gpt-4.1` e `gpt-5-mini`, mas não retornou `gpt-4o` na lista, embora `gpt-4o` tenha respondido normalmente no endpoint `/chat`.
-
-**Multiplicadores de custo (planos pagos):**
-
-| Modelo | Multiplicador | Tier |
-|--------|--------------|------|
-| `gpt-4.1`, `gpt-4o`, `gpt-5-mini`, `raptor-mini` | 0× | free_0x |
-| `claude-haiku-4.5`, `gemini-3-flash`, `gpt-5.1-codex-mini`, `grok-code-fast-1` | 0.25–0.33× | premium |
-| `claude-sonnet-4`, `claude-sonnet-4.5`, `gemini-2.5-pro`, `gpt-5.1`, `gpt-5.2` | 1× | premium |
-| `claude-opus-4.5`, `claude-opus-4.6` | 3× | premium |
-| `claude-opus-4.6-fast` | 30× | premium |
-
----
-
-### POST /chat (JSON — texto puro)
-
-Chat síncrono: envia um prompt e aguarda a resposta completa.
+#### Chat JSON
 
 ```bash
 curl -X POST http://localhost:8080/chat \
   -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "Explique ponteiros em Go em uma frase.",
-    "model": "gpt-5-mini"
-  }'
-```
-```json
-{
-  "model": "gpt-5-mini",
-  "content": "Ponteiros em Go são variáveis que armazenam o endereço de memória de outra variável, permitindo acesso e modificação indireta do valor original."
-}
+  -d '{"prompt":"Explique ponteiros em Go","model":"gpt-5-mini"}'
 ```
 
-**Campos do request (JSON):**
-
-| Campo | Tipo | Obrigatório | Default | Descrição |
-|-------|------|-------------|---------|-----------|
-| `prompt` | string | ✅ | — | Prompt/pergunta para o modelo |
-| `model` | string | ❌ | `gpt-5-mini` | ID do modelo (ver `/models`) |
-| `reasoning_effort` | string | ❌ | — | Nível de raciocínio: `low`, `medium`, `high`, `xhigh` |
-
----
-
-### POST /chat (JSON — com reasoning)
-
-Modelos que suportam "thinking" retornam o raciocínio interno no campo `reasoning`.
+#### Chat com arquivo
 
 ```bash
 curl -X POST http://localhost:8080/chat \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "Qual o 20º número primo?",
-    "model": "claude-sonnet-4",
-    "reasoning_effort": "high"
-  }'
-```
-```json
-{
-  "model": "claude-sonnet-4",
-  "content": "O 20º número primo é 71.",
-  "reasoning": "Vou listar os números primos sequencialmente: 2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71. O 20º é 71."
-}
-```
-
----
-
-### POST /chat (Multipart — com arquivo)
-
-Envio de arquivo (imagem, código, texto, PDF) junto com o prompt via `multipart/form-data`.  
-O arquivo é salvo temporariamente no servidor e passado ao SDK como `Attachment{Type: "file"}`.
-
-```bash
-# Transcrever/analisar uma imagem
-curl -X POST http://localhost:8080/chat \
-  -F "prompt=Descreva o que você vê nesta imagem em detalhes" \
+  -F "prompt=Descreva esta imagem" \
   -F "model=gpt-4o" \
   -F "file=@screenshot.png"
-
-# Analisar código Go
-curl -X POST http://localhost:8080/chat \
-  -F "prompt=Encontre bugs e sugira melhorias neste código" \
-  -F "model=gpt-5-mini" \
-  -F "file=@main.go"
-
-# Analisar CSV com reasoning
-curl -X POST http://localhost:8080/chat \
-  -F "prompt=Analise os dados e identifique tendências" \
-  -F "model=claude-sonnet-4" \
-  -F "reasoning_effort=high" \
-  -F "file=@dados.csv"
-
-# Multipart sem arquivo (somente texto — funciona igual ao JSON)
-curl -X POST http://localhost:8080/chat \
-  -F "prompt=Olá mundo" \
-  -F "model=gpt-5-mini"
 ```
 
-**Campos do multipart:**
-
-| Campo | Tipo | Obrigatório | Descrição |
-|-------|------|-------------|-----------|
-| `prompt` | text | ✅ | Prompt/pergunta |
-| `model` | text | ❌ | ID do modelo (default: `gpt-5-mini`) |
-| `reasoning_effort` | text | ❌ | `low` / `medium` / `high` / `xhigh` |
-| `file` | file | ❌ | Arquivo para análise (≤5MB) |
-
-**Tipos de arquivo suportados (≤5MB):**
-
-| Categoria | Extensões |
-|-----------|-----------|
-| Imagens | `.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`, `.bmp`, `.svg` |
-| Texto | `.txt`, `.md`, `.json`, `.yaml`, `.yml`, `.csv`, `.xml`, `.html` |
-| Código | `.go`, `.py`, `.js`, `.ts`, `.jsx`, `.tsx`, `.java`, `.c`, `.cpp`, `.h`, `.rs`, `.rb`, `.php`, `.sh`, `.sql`, `.css`, `.scss`, `.vue`, `.swift`, `.kt` |
-| Documentos | `.pdf` |
-| Dados | `.log`, `.env`, `.toml`, `.ini` |
-
-> **Nota:** O arquivo temporário é automaticamente removido após o envio da resposta (via `defer cleanup()`).  
-> Extensões não listadas retornam erro `400 validation_error`.
-
----
-
-### WS /chat/stream (texto puro)
-
-Streaming de tokens em tempo real via WebSocket. Cada fragmento é enviado imediatamente conforme gerado.
+#### Streaming WebSocket
 
 ```javascript
 const ws = new WebSocket("ws://localhost:8080/chat/stream");
@@ -309,115 +173,158 @@ ws.onopen = () => {
     model: "gpt-5-mini"
   }));
 };
-
-ws.onmessage = (event) => {
-  const chunk = JSON.parse(event.data);
-  switch (chunk.type) {
-    case "chunk":     // fragmento de texto
-      process.stdout.write(chunk.content);
-      break;
-    case "reasoning": // fragmento de raciocínio (thinking)
-      process.stderr.write(chunk.content);
-      break;
-    case "done":      // geração concluída
-      console.log("\n[Stream concluído]");
-      ws.close();
-      break;
-    case "error":     // erro do SDK/modelo
-      console.error("Erro:", chunk.error);
-      ws.close();
-      break;
-  }
-};
 ```
 
-Via `wscat`:
+### Estrutura do projeto
+
+```text
+.
+├── main.go
+├── go.mod
+├── copilot/
+│   ├── client.go
+│   └── models.go
+├── handlers/
+│   ├── chat.go
+│   ├── models.go
+│   ├── response.go
+│   ├── stream.go
+│   └── upload.go
+├── middleware/
+│   └── middleware.go
+├── Dockerfile
+├── docker-compose.yml
+└── README.md
+```
+
+### Requisitos
+
+- Go `1.25+`
+- Docker e Docker Compose opcionalmente
+- token `github_pat_...` com permissão `Copilot Requests`
+
+### Healthcheck do container
+
+O runtime usa `curl` no healthcheck porque `/dev/tcp` não é compatível com o `/bin/sh` do Debian slim.
+
+---
+
+## English
+
+### Overview
+
+This project exposes an HTTP API and a WebSocket endpoint on top of the official GitHub Copilot Go SDK.
+
+Actual request flow:
+
+1. Client sends a request to the Go API
+2. The API creates an ephemeral SDK session
+3. The SDK talks to the Copilot CLI over JSON-RPC
+4. The Copilot CLI talks to GitHub Copilot
+5. The response comes back through HTTP or WebSocket
+
+### Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/health` | Health check |
+| GET | `/models` | Lists CLI-exposed models and classifies them by tier |
+| POST | `/chat` | Synchronous chat with JSON or multipart/form-data |
+| WS | `/chat/stream` | Streaming responses over WebSocket |
+
+### Runtime notes
+
+- HTTP server uses native `net/http`
+- WebSocket streaming uses `gorilla/websocket`
+- SDK lifecycle is centralized in a manager
+- each chat request creates its own temporary Copilot session
+- uploaded files are temporary and cleaned up after use
+
+### Why memory usage starts around 200+ MiB
+
+The Go server is not the main memory consumer.
+
+Observed runtime profile:
+
+- container memory: roughly `216 MiB` to `245 MiB`
+- `/api-server`: about `10 MiB` RSS
+- embedded Copilot CLI: roughly `295 MiB` RSS in `docker top`
+
+Bottom line:
+
+- most memory is consumed by the embedded Copilot CLI process
+- the Go API layer itself is comparatively small
+
+### Important note about `/models`
+
+`/models` only returns what the Copilot CLI exposes through `ListModels()`.
+
+So a model may:
+
+- work in `/chat`
+- but still not appear in `/models`
+
+if the CLI accepts the model ID directly but does not advertise it in the current account/environment listing.
+
+### File support
+
+`POST /chat` supports:
+
+- `application/json`
+- `multipart/form-data`
+- optional `file` upload
+
+`WS /chat/stream` supports:
+
+- JSON payloads
+- optional `file.data` in base64
+
+Limits:
+
+- max file size: `5 MB`
+- allowed file extensions for images, text, code, PDF and selected config/log formats
+
+### Quick Start
+
 ```bash
-wscat -c ws://localhost:8080/chat/stream
-> {"prompt":"O que é uma goroutine?","model":"gpt-5-mini"}
-< {"type":"chunk","content":"Uma goroutine"}
-< {"type":"chunk","content":" é uma thread"}
-< {"type":"chunk","content":" leve gerenciada pelo runtime do Go..."}
-< {"type":"done"}
+export COPILOT_GITHUB_TOKEN=github_pat_xxxxx
+go mod download
+go build -o api-server .
+./api-server
 ```
 
-**Formato do request (JSON via WS):**
-
-| Campo | Tipo | Obrigatório | Descrição |
-|-------|------|-------------|-----------|
-| `prompt` | string | ✅ | Prompt/pergunta |
-| `model` | string | ❌ | ID do modelo (default: `gpt-5-mini`) |
-| `reasoning_effort` | string | ❌ | `low` / `medium` / `high` / `xhigh` |
-| `file` | object | ❌ | Arquivo anexo codificado em base64 |
-| `file.data` | string | se `file` | Conteúdo em base64 |
-| `file.mime_type` | string | se `file` | MIME type (ex: `image/png`) |
-| `file.name` | string | se `file` | Nome com extensão (ex: `foto.png`) |
-
-**Formato dos chunks (JSON via WS):**
-
-| Campo | Tipo | Descrição |
-|-------|------|-----------|
-| `type` | string | `"chunk"` (texto), `"reasoning"` (thinking), `"done"` (fim), `"error"` (falha) |
-| `content` | string | Fragmento de texto (quando `type` é `chunk` ou `reasoning`) |
-| `error` | string | Mensagem de erro (quando `type` é `error`) |
-
----
-
-### WS /chat/stream (com arquivo base64)
-
-Envio de arquivo codificado em base64 junto com o prompt via WebSocket.  
-O conteúdo é decodificado, salvo como arquivo temporário e passado ao SDK como `Attachment{Type: "file"}`.
-
-```javascript
-const fs = require("fs");
-const imageBase64 = fs.readFileSync("foto.png").toString("base64");
-
-const ws = new WebSocket("ws://localhost:8080/chat/stream");
-
-ws.onopen = () => {
-  ws.send(JSON.stringify({
-    prompt: "Descreva esta imagem em detalhes",
-    model: "gpt-4o",
-    file: {
-      data: imageBase64,
-      mime_type: "image/png",
-      name: "foto.png"
-    }
-  }));
-};
-
-ws.onmessage = (event) => {
-  const chunk = JSON.parse(event.data);
-  if (chunk.type === "chunk") process.stdout.write(chunk.content);
-  if (chunk.type === "done") { console.log(); ws.close(); }
-  if (chunk.type === "error") { console.error(chunk.error); ws.close(); }
-};
+```bash
+echo "COPILOT_GITHUB_TOKEN=github_pat_xxxxx" > .env
+docker compose up --build
 ```
 
-> **Nota:** O limite de 5MB aplica-se ao conteúdo **decodificado** (não ao base64, que é ~33% maior).  
-> O arquivo temporário é removido automaticamente após o streaming (via `defer cleanup()`).
+### Example requests
 
----
+```bash
+curl http://localhost:8080/health
+curl http://localhost:8080/models | jq
+```
 
-## Detalhes Técnicos
+```bash
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"Explain Go pointers in one sentence","model":"gpt-5-mini"}'
+```
 
-### Streaming via Events (não polling)
+```bash
+curl -X POST http://localhost:8080/chat \
+  -F "prompt=Describe this image" \
+  -F "model=gpt-4o" \
+  -F "file=@screenshot.png"
+```
 
-O SDK **não** possui um método `Stream()`. O streaming é implementado via **event subscription**:
+### Repository growth
 
-1. `session.On(callback)` — registra handler que recebe cada `SessionEvent`
-2. `session.Send(ctx, opts)` — envia mensagem (assíncrono, retorna imediatamente)
-3. Eventos `AssistantMessageDelta` chegam com `DeltaContent` (fragmentos de texto)
-4. Eventos `AssistantReasoningDelta` chegam com `DeltaContent` (fragmentos de raciocínio)
-5. Evento `SessionIdle` sinaliza que a geração terminou completamente
+If the repository gains traction, the badges and the Star History chart at the top of this README will update automatically.
 
-Os fragmentos são encaminhados via **channel Go** (buffer 128) para a goroutine do WebSocket, garantindo baixa latência e zero bloqueio.
+### License
 
-### Upload de Arquivos
-
-| Endpoint | Formato | Estratégia |
-|----------|---------|------------|
-| `POST /chat` | `multipart/form-data` | Arquivo salvo em `/tmp`, SDK recebe `Attachment{Type: "file", Path: tmpPath}` |
+Internal use / local development.
 | `WS /chat/stream` | JSON com `file.data` base64 | Base64 decodificado → arquivo temp → `Attachment{Type: "file", Path: tmpPath}` |
 
 **Segurança:**
