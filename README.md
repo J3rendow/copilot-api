@@ -124,7 +124,7 @@ ws.onmessage = (e) => process.stdout.write(e.data);
 
 - Cada request cria uma **sessão efêmera** no Copilot SDK
 - O lifecycle do SDK fica centralizado em um **Manager** thread-safe
-- Uploads são salvos em `/tmp`, usados na sessão e apagados automaticamente
+- Uploads são salvos em `/tmp/copilot-uploads` (isolado do CLI), usados na sessão e apagados automaticamente
 - Modelos são classificados por **match exato + fallback por prefixo** (IDs versionados como `gpt-4o-2024-08-06` → `gpt-4o`)
 
 ### Upload de arquivos
@@ -301,7 +301,7 @@ ws.onmessage = (e) => process.stdout.write(e.data);
 
 - Each request creates an **ephemeral session** in the Copilot SDK
 - SDK lifecycle is centralized in a **thread-safe Manager**
-- Uploaded files are saved to `/tmp`, used in the session, and automatically cleaned up
+- Uploaded files are saved to `/tmp/copilot-uploads` (isolated from the CLI), used in the session, and automatically cleaned up
 - Models are classified by **exact match + prefix fallback** (versioned IDs like `gpt-4o-2024-08-06` → `gpt-4o`)
 
 ### File upload

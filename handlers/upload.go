@@ -13,6 +13,10 @@ import (
 // maxFileSize é o tamanho máximo permitido para upload (5MB).
 const maxFileSize = 5 << 20
 
+// uploadBaseDir é o diretório base para arquivos temporários de upload.
+// Isolado do /tmp geral para evitar conflitos com o Copilot CLI.
+const uploadBaseDir = "/tmp/copilot-uploads"
+
 // allowedExtensions define quais extensões de arquivo são aceitas.
 var allowedExtensions = map[string]bool{
 	// Imagens
@@ -48,7 +52,12 @@ func validateFileExtension(filename string) error {
 // saveTempFile salva o conteúdo do reader em um arquivo temporário.
 // Retorna o caminho do arquivo e uma função cleanup para removê-lo.
 func saveTempFile(r io.Reader, filename string) (tmpPath string, cleanup func(), err error) {
-	dir, err := os.MkdirTemp("", "copilot-upload-*")
+	// Garante que o diretório base existe (necessário fora do Docker).
+	if err := os.MkdirAll(uploadBaseDir, 0o700); err != nil {
+		return "", nil, fmt.Errorf("falha ao criar diretório de uploads: %w", err)
+	}
+
+	dir, err := os.MkdirTemp(uploadBaseDir, "copilot-upload-*")
 	if err != nil {
 		return "", nil, fmt.Errorf("falha ao criar diretório temporário: %w", err)
 	}

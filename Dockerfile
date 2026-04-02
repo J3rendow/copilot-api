@@ -44,7 +44,9 @@ COPY . .
 # Usa o bundler do SDK para embutir o Copilot CLI no binário.
 # O bundler baixa o CLI do npm (@github/copilot-linux-x64) e o embute
 # via Go embed. O binário Go resultante extrai o CLI no primeiro uso.
-RUN go get -tool github.com/github/copilot-sdk/go/cmd/bundler
+# IMPORTANTE: Versão pinada para corresponder ao go.mod e evitar upgrade
+# automático que quebraria a build (v0.2.0 renomeia constantes).
+RUN go get -tool github.com/github/copilot-sdk/go/cmd/bundler@v0.1.29
 RUN go tool bundler
 
 # Compila o binário estático.
