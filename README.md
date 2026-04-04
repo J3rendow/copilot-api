@@ -30,12 +30,21 @@ Cliente HTTP/WS  →  API Go  →  Copilot SDK (JSON-RPC)  →  Copilot CLI  →
 
 ## Endpoints
 
+### Endpoints nativos
+
 | Método | Rota | Descrição |
 |--------|------|-----------|
 | `GET` | `/health` | Health check |
 | `GET` | `/models` | Lista modelos disponíveis classificados por tier |
 | `POST` | `/chat` | Chat síncrono — JSON ou `multipart/form-data` |
 | `WS` | `/chat/stream` | Streaming de tokens via WebSocket |
+
+### Endpoints OpenAI-compatible
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| `GET` | `/v1/models` | Lista modelos (formato OpenAI) |
+| `POST` | `/v1/chat/completions` | Chat síncrono ou SSE streaming (formato OpenAI) |
 
 ## Quick Start
 
@@ -111,6 +120,62 @@ ws.onmessage = (e) => process.stdout.write(e.data);
 ```
 </details>
 
+## OpenAI-Compatible (Drop-in Replacement)
+
+Os endpoints `/v1/...` permitem usar esta API como **drop-in replacement** de uma API OpenAI. Compatível com:
+
+- **OpenClaude** / **Claude Code** (`OPENAI_BASE_URL=http://localhost:8080/v1`)
+- **Aider**, **Continue**, **Open WebUI**, **LiteLLM**
+- Qualquer client que fale o protocolo OpenAI
+
+<details>
+<summary><strong>Exemplo: Listar modelos (formato OpenAI)</strong></summary>
+
+```bash
+curl http://localhost:8080/v1/models | jq '.data[].id'
+```
+</details>
+
+<details>
+<summary><strong>Exemplo: Chat síncrono (formato OpenAI)</strong></summary>
+
+```bash
+curl -X POST http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer dummy" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [{"role": "user", "content": "Hello"}]
+  }' | jq '.choices[0].message.content'
+```
+</details>
+
+<details>
+<summary><strong>Exemplo: Streaming SSE (formato OpenAI)</strong></summary>
+
+```bash
+curl -N -X POST http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [{"role": "user", "content": "Hello world em Go"}],
+    "stream": true
+  }'
+```
+</details>
+
+<details>
+<summary><strong>Exemplo: Usar com OpenClaude / Claude Code</strong></summary>
+
+```bash
+export CLAUDE_CODE_USE_OPENAI=1
+export OPENAI_BASE_URL=http://localhost:8080/v1
+export OPENAI_API_KEY=dummy
+export OPENAI_MODEL=gpt-4o
+openclaude
+```
+</details>
+
 ## Arquitetura
 
 | Componente | Tecnologia |
@@ -183,6 +248,9 @@ O healthcheck usa `curl` em vez de `/dev/tcp` porque o `/bin/sh` do Debian slim 
 ├── handlers/
 │   ├── chat.go          # POST /chat
 │   ├── models.go        # GET /models
+│   ├── openai.go        # POST /v1/chat/completions (sync + SSE)
+│   ├── openai_models.go # GET /v1/models
+│   ├── openai_types.go  # Structs request/response OpenAI
 │   ├── response.go      # Helpers de resposta JSON
 │   ├── stream.go        # WS /chat/stream
 │   └── upload.go        # Validação e gestão de uploads
@@ -207,12 +275,21 @@ HTTP/WS Client  →  Go API  →  Copilot SDK (JSON-RPC)  →  Copilot CLI  → 
 
 ## Endpoints
 
+### Native endpoints
+
 | Method | Route | Description |
 |--------|-------|-------------|
 | `GET` | `/health` | Health check |
 | `GET` | `/models` | Lists available models classified by tier |
 | `POST` | `/chat` | Synchronous chat — JSON or `multipart/form-data` |
 | `WS` | `/chat/stream` | Token streaming over WebSocket |
+
+### OpenAI-compatible endpoints
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `GET` | `/v1/models` | List models (OpenAI format) |
+| `POST` | `/v1/chat/completions` | Sync or SSE streaming chat (OpenAI format) |
 
 ## Quick Start
 
@@ -285,6 +362,62 @@ ws.onopen = () => {
 };
 
 ws.onmessage = (e) => process.stdout.write(e.data);
+```
+</details>
+
+## OpenAI-Compatible (Drop-in Replacement)
+
+The `/v1/...` endpoints allow using this API as a **drop-in replacement** for an OpenAI API. Compatible with:
+
+- **OpenClaude** / **Claude Code** (`OPENAI_BASE_URL=http://localhost:8080/v1`)
+- **Aider**, **Continue**, **Open WebUI**, **LiteLLM**
+- Any client that speaks the OpenAI protocol
+
+<details>
+<summary><strong>List models (OpenAI format)</strong></summary>
+
+```bash
+curl http://localhost:8080/v1/models | jq '.data[].id'
+```
+</details>
+
+<details>
+<summary><strong>Sync chat (OpenAI format)</strong></summary>
+
+```bash
+curl -X POST http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer dummy" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [{"role": "user", "content": "Hello"}]
+  }' | jq '.choices[0].message.content'
+```
+</details>
+
+<details>
+<summary><strong>SSE streaming (OpenAI format)</strong></summary>
+
+```bash
+curl -N -X POST http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [{"role": "user", "content": "Hello world in Go"}],
+    "stream": true
+  }'
+```
+</details>
+
+<details>
+<summary><strong>Use with OpenClaude / Claude Code</strong></summary>
+
+```bash
+export CLAUDE_CODE_USE_OPENAI=1
+export OPENAI_BASE_URL=http://localhost:8080/v1
+export OPENAI_API_KEY=dummy
+export OPENAI_MODEL=gpt-4o
+openclaude
 ```
 </details>
 

@@ -6,10 +6,12 @@
 //   - github.com/github/copilot-sdk/go como cliente JSON-RPC do Copilot CLI
 //
 // Endpoints:
-//   GET  /models       → lista modelos classificados (free vs premium)
-//   POST /chat         → chat síncrono (aguarda resposta completa)
-//   WS   /chat/stream  → streaming de tokens via WebSocket
-//   GET  /health       → health check
+//   GET  /models              → lista modelos classificados (free vs premium)
+//   POST /chat                → chat síncrono (aguarda resposta completa)
+//   WS   /chat/stream         → streaming de tokens via WebSocket
+//   GET  /health              → health check
+//   GET  /v1/models           → lista modelos (formato OpenAI)
+//   POST /v1/chat/completions → chat síncrono ou SSE streaming (formato OpenAI)
 
 package main
 
@@ -65,10 +67,16 @@ func main() {
 		fmt.Fprint(w, `{"status":"ok"}`)
 	})
 
-	// Endpoints da API.
+	// Endpoints da API (formato nativo).
 	mux.HandleFunc("GET /models", handlers.ModelsHandler(mgr))
 	mux.HandleFunc("POST /chat", handlers.ChatHandler(mgr))
 	mux.HandleFunc("/chat/stream", handlers.StreamHandler(mgr)) // WS (sem method prefix)
+
+	// Endpoints OpenAI-compatible (/v1/...).
+	// Permitem uso como drop-in replacement para clientes OpenAI
+	// (OpenClaude, Aider, Continue, Open WebUI, LiteLLM, etc.).
+	mux.HandleFunc("GET /v1/models", handlers.OpenAIModelsHandler(mgr))
+	mux.HandleFunc("POST /v1/chat/completions", handlers.OpenAIChatHandler(mgr))
 
 	// ── Middleware chain: Recoverer → CORS → Logger → Mux ───────────
 	handler := middleware.Recoverer(
