@@ -20,11 +20,11 @@ type OpenAIChatRequest struct {
 // OpenAIMessage representa uma mensagem no formato OpenAI.
 // Content pode ser string ou []ContentPart (multimodal).
 type OpenAIMessage struct {
-	Role       string          `json:"role"`
-	Content    any             `json:"content"`
-	Name       string          `json:"name,omitempty"`
+	Role       string           `json:"role"`
+	Content    any              `json:"content"`
+	Name       string           `json:"name,omitempty"`
 	ToolCalls  []OpenAIToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string          `json:"tool_call_id,omitempty"`
+	ToolCallID string           `json:"tool_call_id,omitempty"`
 }
 
 // ContentPart representa uma parte de conteúdo multimodal.
@@ -88,8 +88,8 @@ type OpenAIChoice struct {
 
 // OpenAIDelta é o fragmento incremental em streaming SSE.
 type OpenAIDelta struct {
-	Role      string          `json:"role,omitempty"`
-	Content   string          `json:"content,omitempty"`
+	Role      string           `json:"role,omitempty"`
+	Content   string           `json:"content,omitempty"`
 	ToolCalls []OpenAIToolCall `json:"tool_calls,omitempty"`
 }
 
@@ -113,7 +113,7 @@ type OpenAIModel struct {
 	ID         string   `json:"id"`
 	Object     string   `json:"object"`
 	Created    int64    `json:"created"`
-	OwnedBy   string   `json:"owned_by"`
+	OwnedBy    string   `json:"owned_by"`
 	Permission []string `json:"permission"`
 	Root       string   `json:"root"`
 	Parent     *string  `json:"parent"`
